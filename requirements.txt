@@ -1,5 +1,7 @@
 transformers
 pillow
 torch
-streamlit
+streamlit>=1.28
 numpy
+einops
+torchvision
