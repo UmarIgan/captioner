@@ -1,89 +1,75 @@
-import streamlit as st
-from utils import *
-from PIL import Image
+import gradio as gr
+from llama_cpp import Llama
+from llama_cpp_agent import LlamaCppAgent, MessagesFormatterType
+from llama_cpp_agent.providers import LlamaCppPythonProvider
 
-# Streamlit App
+# Model Configuration
+SYSTEM_PROMPT = "You are a helpful, respectful, and honest assistant."
+CHAT_TEMPLATE = MessagesFormatterType.LLAMA_3
+MODEL_PATH = "Llama-3.2-1B-Instruct-Q4_K_M.gguf"  # Update this to your actual model path
+TEMPERATURE = 0.3
+MAX_NEW_TOKENS = 1024
+CONTEXT_WINDOW = 8000
+N_GPU_LAYERS = 0  # Set to 0 for CPU, or -1 for GPU if available
+N_BATCH = 1024
+
+def initialize_model():
+    """Initialize the Llama model and agent."""
+    try:
+        llm = Llama(
+            model_path=MODEL_PATH, 
+            n_gpu_layers=N_GPU_LAYERS, 
+            n_batch=N_BATCH, 
+            n_ctx=CONTEXT_WINDOW
+        )
+        provider = LlamaCppPythonProvider(llm)
+        settings = provider.get_provider_default_settings()
+        settings.temperature = TEMPERATURE
+        settings.max_tokens = MAX_NEW_TOKENS
+        settings.stream = True
+
+        agent = LlamaCppAgent(
+            provider, 
+            system_prompt=SYSTEM_PROMPT, 
+            predefined_messages_formatter_type=CHAT_TEMPLATE, 
+            debug_output=False
+        )
+        return agent, settings
+    except Exception as e:
+        raise gr.Error(f"Failed to initialize model: {str(e)}")
+
+def chat_response(message, history):
+    """Generate a response from the Llama model."""
+    try:
+        # Initialize model if not already done
+        if not hasattr(chat_response, 'agent'):
+            chat_response.agent, chat_response.settings = initialize_model()
+
+        # Accumulate response chunks
+        full_response = ""
+        for chunk in chat_response.agent.get_chat_response(
+            message, 
+            llm_sampling_settings=chat_response.settings, 
+            returns_streaming_generator=True, 
+            print_output=False
+        ):
+            full_response += chunk
+            yield full_response
+
+    except Exception as e:
+        yield f"An error occurred: {str(e)}"
+
 def main():
-    # Custom page config
-    st.set_page_config(page_title="Image Chatbot", page_icon=":camera:", layout="centered")
-
-    # Hide Streamlit's default footer and menu
-    hide_streamlit_style = """
-        <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        .css-164nlkn {visibility: hidden;}
-        </style>
-    """
-    st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-    # Initialize conversation history
-    if "history" not in st.session_state:
-        st.session_state["history"] = []
-
-    # App title
-    st.title("Image Chatbot")
-    st.write("Upload an image and chat with the AI about it. Previous questions and answers will be included in the prompt.")
-
-    # Upload image
-    uploaded_image = st.file_uploader("Choose an image...", type=["png", "jpg", "jpeg"])
-
-    if uploaded_image is not None:
-        # Display image at the top of the app
-        image = Image.open(uploaded_image)
-        st.image(image, caption='Uploaded Image', use_column_width=True)
-        
-        # Keep track of the uploaded image in session state to always show it
-        if "uploaded_image" not in st.session_state:
-            st.session_state["uploaded_image"] = uploaded_image
-
-    elif "uploaded_image" in st.session_state:
-        # Display previously uploaded image if no new image is uploaded
-        image = Image.open(st.session_state["uploaded_image"])
-        st.image(image, caption='Uploaded Image', use_column_width=True)
-
-    # Show conversation history below the image
-    st.subheader("Conversation History")
-    for item in st.session_state["history"]:
-        st.write(f"**You:** {item['question']}")
-        st.write(f"**AI:** {item['answer']}")
+    # Create Gradio interface
+    demo = gr.ChatInterface(
+        chat_response,
+        title="Llama-3.2 1B Chatbot",
+        description="Chat with a lightweight Llama-3.2 1B model",
+        theme="default"
+    )
     
-    # Prompt input
-    prompt = st.text_input("Enter your prompt", "Define the image")
-
-    # If the image is uploaded, process and display the result
-    if "uploaded_image" in st.session_state:
-        if st.button("Send"):
-            # Append previous conversation to the prompt
-            full_prompt = ""
-            for item in st.session_state["history"]:
-                full_prompt += f"Q: {item['question']} A: {item['answer']} "
-            full_prompt += f"Q: {prompt}"
-
-            with st.spinner("Processing..."):
-                # Call the function with the concatenated prompt
-                result = process_single_image_and_get_result(image, full_prompt)
-            
-            # Store the current interaction in session state
-            st.session_state["history"].append({"question": prompt, "answer": result})
-
-            st.success("Answer generated!")
-            st.write(f"**AI:** {result}")
-
-    # Social links
-    st.markdown("---")
-    st.markdown("**Created by [Umar](https://x.com/Umar26338572)**")
-    col1, col2 = st.columns([1, 10])
-    with col1:
-        st.image("https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/x-social-media-black-icon.png", width=20)
-    with col2:
-        st.markdown("[Twitter](https://x.com/Umar26338572)")
-    
-    col1, col2 = st.columns([1, 10])
-    with col1:
-        st.image("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTO9lOYvVYtruNLntp5K61JoX4mACQZ0BmTqQ&s", width=20)
-    with col2:
-        st.markdown("[LinkedIn](https://www.linkedin.com/in/umarigan/)")
+    return demo
 
 if __name__ == "__main__":
-    main()
+    demo = main()
+    demo.launch(server_name="0.0.0.0", server_port=7860)
