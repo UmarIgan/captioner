@@ -1,7 +1,4 @@
-transformers
-pillow
-torch
-streamlit>=1.28
+gradio
+llama-cpp-python
+llama-cpp-agent
 numpy
-einops
-torchvision
